@@ -1,0 +1,82 @@
+	.data 0x10010000
+IN_OUT: .half 0x0000			#carico nel segmento di testo riservato ai dati 16 bit a 0
+	.text 0x00400000
+	la $t0, IN_OUT			#carico in $t0 l'indirizzo di IN_OUT
+	lh $s0, 0($t0)			#dentro $s0 ho tutti i 16 
+	
+cod_1: 	la $t0, IN_OUT			#istruzioni che mi settano nuovamente i 16 bit a 0 dopo il riavvio del programma
+	lh $s0, 0($t0)	
+
+	lui $s1, 0x05F5			#n1 (val di count se V=90km/h)	
+	ori $s1, $s1, 0xE100	 	
+	
+	lui $s2, 0x055D			#n2 (val di count se V=100km/h)
+	ori $s2, $s2, 0x4A80	 	
+
+	lui $s3, 0x04C4			#n3 (val di count se V=110km/h)	
+	ori $s3, $s3, 0xB400	 	
+
+	lui $s4, 0x0000			#count		
+	ori $s4, $s4, 0x0000		
+
+	lui $s5, 0x0013			#addi $s5, $zero, 1250000	
+	ori $s5, $s5, 0x12D0		#var per perdiTempo 500ms (tempo diaframma)
+
+	lui $s6, 0x0EE6			#addi $s6, $zero, 250000000	
+	ori $s6, $s6, 0xB280	 	#var per perdiTempo 1s
+
+	lui $t7, 0x0000		
+	ori $t7, $t7, 0x8000
+	addi $t8, $zero, 0x4000		#costante necessaria per confrontare il 15esimo bit della sequenza
+
+loop1:	lh $s0, 0($t0)
+	beq $s0, $t7, loop		#se sensore 1 = 1000000000000000 inizia a incremetare count
+	j loop1
+	
+loop:	lh $s0, 0($t0)
+	addi $s4, $s4, 1		#count++
+	beq $s0, $t8, check 		#continua a inc count fintanto che sensore 2 = 010000000000000
+	j loop
+
+check:	slt $t3, $s1, $s4		#1 se v<90 - 0 se v>90	
+	beq $t3, 1, fine		#se $t3=1 goto vel1(v<90)
+	beq $t3, $zero, vel		#se $t3=0 goto vel2(v>90)
+	
+fine:	j cod_1				#ha terminato e aspetta la prossima macchina
+
+#quando arrivo a vel so già che la mia velocità è maggiore di 90 e ho già scattato la foto
+#devo verificare se è maggiore o minore di 100 e 110
+
+vel:	slt $t5, $s2, $s4		#se v<100 --> $t5=1, se v>100 --> $t5=0
+	beq $t5, 1, fine_1
+	beq $t5, $zero, vel_1
+
+vel_1:	slt $t5, $s3, $s4		#se v<110 --> $t5=1, se v>110 --> $t5=0
+	beq $t5, 1, fine_2
+	beq $t5, $zero, fine_3
+
+fine_1:	ori $s0, $s0, 0x0080		#metto i bit 6 e 7 a 01
+	j perdiT
+	#Stringa di bit finale per 90<v<100
+
+fine_2:	ori $s0, $s0, 0x0040		#metto i bit 6 e 7 a 10
+	j perdiT
+	#Stringa di bit finale per 100<v<110
+
+fine_3:	ori $s0, $s0, 0x00C0		#metto i bit 6 e 7 a 11
+	j perdiT
+	#Stringa di bit finale per v>110
+
+perdiT:	addi $s6, $s6, -1		#decrementa s6 fintantoche s6=0
+	beq $s6, $zero, pht	    	#salta a pht quando arriva a 0
+	j perdiT
+
+pht:	ori $s0, $s0, 0x0008		#metto il bit 3 a 1 (MF) 
+	j perdiT1
+
+perdiT1:addi $s5, $s5, -1		#decrementa s5 fintantoche s5=0
+	bne $s5, $zero, perdiT1
+	beq $s5, $zero, store
+
+store: sh $s0, 0($t0)
+	j cod_1
